@@ -56,7 +56,7 @@ libtwi.lss: libtwi.a
 
 sizedummy: libtwi.a
 	@echo 'Invoking: Print Size'
-	-avr-size --format=avr --mcu=atmega328p libtwi.a
+	-avr-size --format=avr --mcu=atmega2560 libtwi.a
 	@echo 'Finished building: $@'
 	@echo ' '
 

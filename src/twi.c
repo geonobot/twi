@@ -6,19 +6,19 @@
  */
 
 #include "twi.h"
+#include <util/delay.h>
 
 volatile uint8_t slave_address;
 
-volatile uint8_t twi_flag_read_complete = 1;
-volatile uint8_t twi_flag_write_complete = 1;
+static volatile uint8_t twi_flag_read_complete = 1;
+static volatile uint8_t twi_flag_write_complete = 1;
 
-volatile uint8_t *twi_receive_buffer;
-volatile uint8_t *twi_transmit_buffer;
-volatile uint8_t twi_i = 0;
+static volatile uint8_t *twi_receive_buffer;
+static volatile uint8_t *twi_transmit_buffer;
+static volatile uint8_t twi_i = 0;
 
 uint8_t twi_mode;
 uint8_t twi_nb_data_to_transmit, twi_nb_data_to_receive;
-
 
 ISR(TWI_vect)
 {
@@ -27,110 +27,110 @@ ISR(TWI_vect)
   status = TWSR & 0xF8;
   switch (status)
     {
-  case (TW_START): /* 0x08 : start condition transmitted */
-  case (TW_REP_START): /* 0x10 : repeated START condition transmitted */
-    twi_address();
-    twi_i = 0;
+    case (TW_START): /* 0x08 : start condition transmitted */
+    case (TW_REP_START): /* 0x10 : repeated START condition transmitted */
+      twi_address ();
+      twi_i = 0;
 
-    break;
-  case (TW_MT_ARB_LOST): /* 0x38 : arbitration lost in SLA+RW, SLA+R received, ACK returned */
-    break;
+      break;
+    case (TW_MT_ARB_LOST): /* 0x38 : arbitration lost in SLA+RW, SLA+R received, ACK returned */
+      break;
 
-    /* Master Transmitter */
-  case (TW_MT_SLA_ACK): /* 0x18 : SLA+W transmitted; ACK received */
-  case (TW_MT_SLA_NACK): /* 0x20 : SLA+W transmitted; NACK received */
-    TWDR = twi_transmit_buffer[0];
-    TWCR = (1 << TWEA) | (1 << TWEN) | (1 << TWIE) | (1 << TWINT);
-    twi_i++;
-    break;
+      /* Master Transmitter */
+    case (TW_MT_SLA_ACK): /* 0x18 : SLA+W transmitted; ACK received */
+    case (TW_MT_SLA_NACK): /* 0x20 : SLA+W transmitted; NACK received */
+      TWDR = twi_transmit_buffer[0];
+      TWCR = (1 << TWEA) | (1 << TWEN) | (1 << TWIE) | (1 << TWINT);
+      twi_i++;
+      break;
 
-  case (TW_MT_DATA_ACK):/* 0x28 : data has been transmitted; ACK has been received */
-  case (TW_MT_DATA_NACK): /* 0x30 : data has been transmitted; NACK has been received */
-    if (twi_i == twi_nb_data_to_transmit)
-      {
-        if (twi_mode == WRITE)
-          {
-            twi_stop();
-            twi_flag_write_complete = 1;
-          }
-        else // READ
-          {
-            slave_address++;
-            twi_start();
-          }
-      }
-    else
-      {
-        twi_data(twi_transmit_buffer[twi_i]);
-        twi_i++;
-      }
-    break;
+    case (TW_MT_DATA_ACK):/* 0x28 : data has been transmitted; ACK has been received */
+    case (TW_MT_DATA_NACK): /* 0x30 : data has been transmitted; NACK has been received */
+      if (twi_i == twi_nb_data_to_transmit)
+	{
+	  if (twi_mode == WRITE)
+	    {
+	      twi_stop ();
+	      twi_flag_write_complete = 1;
+	    }
+	  else // READ
+	    {
+	      slave_address++;
+	      twi_start ();
+	    }
+	}
+      else
+	{
+	  twi_data (twi_transmit_buffer[twi_i]);
+	  twi_i++;
+	}
+      break;
 
-    /* Master Receiver */
-  case (TW_MR_SLA_ACK):/* 0x40 : SLA+R has been transmitted; ACK has been received */
+      /* Master Receiver */
+    case (TW_MR_SLA_ACK):/* 0x40 : SLA+R has been transmitted; ACK has been received */
 
-  case (TW_MR_SLA_NACK): /* 0x48 : SLA+R has been transmitted; NACK has been received */
-    if (twi_nb_data_to_receive == 1)
-      {
-        TWCR &= ~(1 << TWEA); /* desactiver ACK pour la derniere demande */
-      }
-    break;
-  case (TW_MR_DATA_ACK):/* 0x50 : data received, ACK transmitted */
-  case (TW_MR_DATA_NACK): /* 0x58 : data received, NACK transmitted */
-    twi_receive_buffer[twi_i] = TWDR;
-    twi_i++;
+    case (TW_MR_SLA_NACK): /* 0x48 : SLA+R has been transmitted; NACK has been received */
+      if (twi_nb_data_to_receive == 1)
+	{
+	  TWCR &= ~(1 << TWEA); /* desactiver ACK pour la derniere demande */
+	}
+      break;
+    case (TW_MR_DATA_ACK):/* 0x50 : data received, ACK transmitted */
+    case (TW_MR_DATA_NACK): /* 0x58 : data received, NACK transmitted */
+      twi_receive_buffer[twi_i] = TWDR;
+      twi_i++;
 
-    if (twi_i == (twi_nb_data_to_receive - 1))
-      {
-        TWCR &= ~(1 << TWEA); /* desactiver ACK pour la derniere demande */
-      }
-    if (twi_i == twi_nb_data_to_receive)
-      {
-        twi_flag_read_complete = 1;
-        twi_stop();
-      }
-    break;
+      if (twi_i == (twi_nb_data_to_receive - 1))
+	{
+	  TWCR &= ~(1 << TWEA); /* desactiver ACK pour la derniere demande */
+	}
+      if (twi_i == twi_nb_data_to_receive)
+	{
+	  twi_flag_read_complete = 1;
+	  twi_stop ();
+	}
+      break;
 
-    /* Slave Receiver */
-  case (TW_SR_SLA_ACK):/* 0x60 : SLA+W received, ACK returned */
-    break;
-  case (TW_SR_ARB_LOST_SLA_ACK):/*0x68 : arbitration lost in SLA+RW, SLA+W received, ACK returned */
-    break;
-  case (TW_SR_GCALL_ACK): /*0x70 : general call received, ACK returned */
-    break;
-  case (TW_SR_ARB_LOST_GCALL_ACK): /* 0x78 : arbitration lost in SLA+RW, general call received, ACK returned */
-    break;
-  case (TW_SR_DATA_ACK): /* 0x80 : data received, ACK returned */
-  case (TW_SR_DATA_NACK): /* 0x88 : data received, NACK returned */
-  case (TW_SR_GCALL_DATA_ACK): /* 0x90 : general call data received, ACK returned */
-  case (TW_SR_GCALL_DATA_NACK):/* 0x98 : general call data received, NACK returned */
-    twi_receive_buffer[twi_i] = TWDR;
-    twi_i++;
-    break;
-  case (TW_SR_STOP):/* 0xA0 : stop or repeated start condition received while selected */
-    twi_flag_write_complete = 1;
-    twi_i = 0;
-    break;
+      /* Slave Receiver */
+    case (TW_SR_SLA_ACK):/* 0x60 : SLA+W received, ACK returned */
+      break;
+    case (TW_SR_ARB_LOST_SLA_ACK):/*0x68 : arbitration lost in SLA+RW, SLA+W received, ACK returned */
+      break;
+    case (TW_SR_GCALL_ACK): /*0x70 : general call received, ACK returned */
+      break;
+    case (TW_SR_ARB_LOST_GCALL_ACK): /* 0x78 : arbitration lost in SLA+RW, general call received, ACK returned */
+      break;
+    case (TW_SR_DATA_ACK): /* 0x80 : data received, ACK returned */
+    case (TW_SR_DATA_NACK): /* 0x88 : data received, NACK returned */
+    case (TW_SR_GCALL_DATA_ACK): /* 0x90 : general call data received, ACK returned */
+    case (TW_SR_GCALL_DATA_NACK):/* 0x98 : general call data received, NACK returned */
+      twi_receive_buffer[twi_i] = TWDR;
+      twi_i++;
+      break;
+    case (TW_SR_STOP):/* 0xA0 : stop or repeated start condition received while selected */
+      twi_flag_write_complete = 1;
+      twi_i = 0;
+      break;
 
-    /* Slave Transmitter */
-  case (TW_ST_SLA_ACK): /* 0xA8 : SLA+R received, ACK returned*/
-    twi_i = 0;
-    TWDR = twi_transmit_buffer[twi_i];
-    twi_i++;
-    break;
-  case (TW_ST_ARB_LOST_SLA_ACK): /* 0xB0 : arbitration lost in SLA+RW, SLA+R received, ACK returned */
-    break;
-  case (TW_ST_DATA_ACK): /* 0xB8 : data transmitted, ACK received */
-    TWDR = twi_transmit_buffer[twi_i];
-    twi_i++;
-    break;
-  case (TW_ST_DATA_NACK):/*0xC0 : data transmitted, NACK received */
-    break;
-  case (TW_ST_LAST_DATA): /* 0xC8 : last data byte transmitted, ACK received */
-    break;
+      /* Slave Transmitter */
+    case (TW_ST_SLA_ACK): /* 0xA8 : SLA+R received, ACK returned*/
+      twi_i = 0;
+      TWDR = twi_transmit_buffer[twi_i];
+      twi_i++;
+      break;
+    case (TW_ST_ARB_LOST_SLA_ACK): /* 0xB0 : arbitration lost in SLA+RW, SLA+R received, ACK returned */
+      break;
+    case (TW_ST_DATA_ACK): /* 0xB8 : data transmitted, ACK received */
+      TWDR = twi_transmit_buffer[twi_i];
+      twi_i++;
+      break;
+    case (TW_ST_DATA_NACK):/*0xC0 : data transmitted, NACK received */
+      break;
+    case (TW_ST_LAST_DATA): /* 0xC8 : last data byte transmitted, ACK received */
+      break;
 
-  default:
-    break;
+    default:
+      break;
     }
 
   TWCR |= (1 << TWINT); // TWINT flag bit is cleared
@@ -142,7 +142,7 @@ ISR(TWI_vect)
  * SCLfreq = CPUfreq / (16 + 2 * TWBR * presc)
  * */
 void
-twi_master_setup(/*uint16_t scl_freq*/void)
+twi_master_setup (/*uint16_t scl_freq*/void)
 {
   PORT_TWI = (1 << DDR_SDA) | (1 << DDR_SCL); // activate internal pull_ups for twi
 
@@ -167,8 +167,8 @@ twi_master_setup(/*uint16_t scl_freq*/void)
  * \param receive_buffer : adresse du buffer pour la reception
  */
 void
-twi_slave_setup(uint8_t address, volatile uint8_t *transmit_buffer,
-    volatile uint8_t *receive_buffer)
+twi_slave_setup (uint8_t address, volatile uint8_t *transmit_buffer,
+		 volatile uint8_t *receive_buffer)
 {
   PORT_TWI = (1 << DDR_SDA) | (1 << DDR_SCL); // activate internal pull_ups for twi
 
@@ -191,7 +191,7 @@ twi_slave_setup(uint8_t address, volatile uint8_t *transmit_buffer,
  * \brief transmit START condition
  * */
 void
-twi_start(void)
+twi_start (void)
 {
   TWCR = (1 << TWEA) | (1 << TWEN) | (1 << TWIE) | (1 << TWINT) | (1 << TWSTA); /* send start condition */
 }
@@ -201,7 +201,7 @@ twi_start(void)
  * \brief transmit slave address SLA
  * */
 void
-twi_address(void)
+twi_address (void)
 {
   TWDR = slave_address; /* load SLA into TWDR */
 
@@ -213,7 +213,7 @@ twi_address(void)
  * \param data to send
  * */
 void
-twi_data(uint8_t data)
+twi_data (uint8_t data)
 {
   TWDR = data;
 }
@@ -223,7 +223,7 @@ twi_data(uint8_t data)
  * \brief transmit STOP condition
  * */
 void
-twi_stop(void)
+twi_stop (void)
 {
   TWCR |= (1 << TWSTO); /* STOP */
 }
@@ -236,7 +236,7 @@ twi_stop(void)
  * \param buffer : transmit buffer address
  * */
 void
-twi_write_bytes(uint8_t add, uint8_t nb_bytes, volatile uint8_t *buffer)
+twi_write_bytes (uint8_t add, uint8_t nb_bytes, volatile uint8_t *buffer)
 {
   if (twi_flag_write_complete == 1)
     {
@@ -248,10 +248,10 @@ twi_write_bytes(uint8_t add, uint8_t nb_bytes, volatile uint8_t *buffer)
 
       twi_mode = WRITE;
       twi_i = 0;
-      twi_start();
+      twi_start ();
 
       while (twi_flag_write_complete == 0)
-        ;
+	;
     }
 }
 
@@ -262,28 +262,30 @@ twi_write_bytes(uint8_t add, uint8_t nb_bytes, volatile uint8_t *buffer)
  * \param reg register to read
  * \param nb_bytes : nb bytes to read
  * \param buffer : receive buffer address
+ * \return 0 if success, 1 if no slave response (timeout)
  */
-void
-twi_read_bytes(uint8_t add, volatile uint8_t *reg, uint8_t nb_bytes,
-    volatile uint8_t *buffer)
+uint8_t
+twi_read_bytes (uint8_t add, volatile uint8_t *reg, uint8_t nb_bytes,
+		volatile uint8_t *buffer)
 {
-  if (twi_flag_read_complete == 1)
+  uint16_t timeout = 0;
+
+  twi_flag_read_complete = 0;
+  twi_flag_write_complete = 0;
+
+  slave_address = (add << 1);
+  twi_transmit_buffer = reg;
+  twi_nb_data_to_transmit = 1;
+  twi_nb_data_to_receive = nb_bytes;
+  twi_receive_buffer = buffer;
+
+  twi_mode = READ;
+  twi_i = 0;
+  twi_start ();
+
+  while ((twi_flag_read_complete == 0) && (timeout < 5000))
     {
-      twi_flag_read_complete = 0;
-      twi_flag_write_complete = 0;
-
-      slave_address = (add << 1);
-      twi_transmit_buffer = reg;
-      twi_nb_data_to_transmit = 1;
-      twi_nb_data_to_receive = nb_bytes;
-      twi_receive_buffer = buffer;
-
-      twi_mode = READ;
-      twi_i = 0;
-      twi_start();
-
-      while (twi_flag_read_complete == 0)
-        ;
-
+      timeout++;
     }
+  return (timeout >= 5000);
 }
